@@ -19,6 +19,7 @@ import QpayPaymentSheet from 'interface/QpayPaymentSheet';
 import ActionSheet from 'react-native-actions-sheet';
 import FastImage from 'react-native-fast-image';
 import tailwind from 'tailwind';
+import AfroPay, { useAfroPay } from 'react-native-afro-pay';
 
 const { addEventListener, removeEventListener, emit } = EventRegister;
 const actionSheetRef = createRef();
@@ -322,6 +323,26 @@ const CheckoutScreen = ({ navigation, route }) => {
         gateway.setCheckoutToken(token);
     };
 
+    const setupAfropayGateway = async (gateway, c = null) => {
+        const currentCustomer = c ?? customer;
+
+        if (!currentCustomer || !isPaymentGatewayResource(gateway)) {
+            return null;
+        }
+
+        const options = getOrderOptions({ pickup: true });
+
+        const { token } = await storefront.checkout.initialize(currentCustomer, cart, serviceQuote, gateway, options).catch((error) => {
+            logError(error, '[ Error initializing checkout token! ]');
+        });
+
+        if (!token) {
+            return null;
+        }
+
+        gateway.setCheckoutToken(token);
+    };
+
     const setupGateways = useCallback(async (gateways, c = null) => {
         const _gateways = new Collection();
 
@@ -341,11 +362,15 @@ const CheckoutScreen = ({ navigation, route }) => {
             }
 
             if (gateway.isCashGateway) {
-                await setupCashGateway(gateway, c);
+                // await setupCashGateway(gateway, c);
             }
 
             if (gateway.type === 'qpay') {
                 await setupQpayGateway(gateway, c);
+            }
+
+            if (gateway.type === 'manual') {
+                // await setupAfropayGateway(gateway, c);
             }
 
             if (!gatewayDetails[gateway.type]) {
@@ -399,7 +424,7 @@ const CheckoutScreen = ({ navigation, route }) => {
         setCheckoutToken(gateway.getCheckoutToken());
         actionSheetRef.current?.setModalVisible(false);
 
-        console.log('[ 💰 Checkout token set: ]', gateway.getCheckoutToken());
+        console.log('[ 💰 Checkout token set: ]', gateway, gateway.getCheckoutToken());
 
         // stripe must present payment sheet
         if (gateway.isStripeGateway) {
@@ -454,6 +479,12 @@ const CheckoutScreen = ({ navigation, route }) => {
         setIsLoading(false);
     };
 
+    const afropay = useAfroPay();
+
+    const completeAfroPayOrder = async () => {
+        afropay.initiatePayment(calculateTotal() / 100);
+    }
+
     const placeOrder = () => {
         setIsLoading(true);
 
@@ -467,6 +498,10 @@ const CheckoutScreen = ({ navigation, route }) => {
 
         if (gateway?.isCashGateway) {
             return completeCashOrder();
+        }
+
+        if (gateway?.type === 'manual') {
+            return completeAfroPayOrder();
         }
 
         setIsLoading(false);
@@ -584,96 +619,174 @@ const CheckoutScreen = ({ navigation, route }) => {
     }, [isMounted]);
 
     return (
-        <View style={[tailwind('w-full h-full bg-white relative'), { paddingTop: insets.top }]}>
-            <ActionSheet containerStyle={tailwind('h-80')} gestureEnabled={true} bounceOnOpen={true} ref={actionSheetRef}>
-                <View>
-                    <View style={tailwind('p-5 flex flex-row items-center justify-between')}>
-                        <Text style={tailwind('text-lg font-bold')}>{translate('Cart.CheckoutScreen.selectPaymentMethodActionSheetTitle')}</Text>
-                        <TouchableOpacity
-                            onPress={() => {
-                                actionSheetRef.current?.setModalVisible(false);
-                            }}
-                        >
-                            <View style={tailwind('rounded-full bg-red-50 w-8 h-8 flex items-center justify-center')}>
-                                <FontAwesomeIcon icon={faTimes} style={tailwind('text-red-900')} />
+        <>
+            <View style={[tailwind('w-full h-full bg-white relative'), { paddingTop: insets.top }]}>
+                <ActionSheet containerStyle={tailwind('h-80')} gestureEnabled={true} bounceOnOpen={true} ref={actionSheetRef}>
+                    <View>
+                        <View style={tailwind('p-5 flex flex-row items-center justify-between')}>
+                            <Text style={tailwind('text-lg font-bold')}>{translate('Cart.CheckoutScreen.selectPaymentMethodActionSheetTitle')}</Text>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    actionSheetRef.current?.setModalVisible(false);
+                                }}
+                            >
+                                <View style={tailwind('rounded-full bg-red-50 w-8 h-8 flex items-center justify-center')}>
+                                    <FontAwesomeIcon icon={faTimes} style={tailwind('text-red-900')} />
+                                </View>
+                            </TouchableOpacity>
+                        </View>
+                        <View style={tailwind('h-full px-5')}>
+                            {gatewayOptions?.map((gateway) => (
+                                <TouchableOpacity key={gateway.id} onPress={() => selectPaymentGateway(gateway)} style={tailwind('rounded-md bg-gray-50 p-4 mb-4')}>
+                                    <View style={tailwind('flex flex-row')}>
+                                        <View style={tailwind('w-10')}>{gatewayDetails[gateway?.type]?.icon}</View>
+                                        <View>
+                                            <Text style={tailwind('font-bold text-base mb-1')}>{gatewayDetails[gateway?.type]?.name}</Text>
+                                            <Text>{gatewayDetails[gateway?.type]?.description}</Text>
+                                        </View>
+                                    </View>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+                </ActionSheet>
+
+                <View style={tailwind('flex flex-row items-center justify-between p-4')}>
+                    <View style={tailwind('flex flex-row items-center')}>
+                        <TouchableOpacity onPress={() => navigation.goBack()} style={tailwind('mr-4')}>
+                            <View style={tailwind('rounded-full bg-gray-100 w-10 h-10 flex items-center justify-center')}>
+                                <FontAwesomeIcon icon={faArrowLeft} />
                             </View>
                         </TouchableOpacity>
+                        <Text style={tailwind('text-xl font-semibold')}>{translate('Cart.CheckoutScreen.checkoutLabelText')}</Text>
                     </View>
-                    <View style={tailwind('h-full px-5')}>
-                        {gatewayOptions?.map((gateway) => (
-                            <TouchableOpacity key={gateway.id} onPress={() => selectPaymentGateway(gateway)} style={tailwind('rounded-md bg-gray-50 p-4 mb-4')}>
-                                <View style={tailwind('flex flex-row')}>
-                                    <View style={tailwind('w-10')}>{gatewayDetails[gateway?.type]?.icon}</View>
+                </View>
+
+                <ScrollView showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false}>
+                    <View style={tailwind('p-4')}>
+                        {!customer && (
+                            <View style={tailwind('p-4 rounded-md bg-red-50 mb-4')}>
+                                <View style={tailwind('flex flex-col overflow-hidden')}>
+                                    <View style={tailwind('flex flex-row items-center mb-3 w-full')}>
+                                        <FontAwesomeIcon icon={faExclamationTriangle} size={14} style={tailwind('text-red-500 mr-2')} />
+                                        <Text style={tailwind('text-red-600 text-sm font-semibold')} numberOfLines={1}>
+                                            {translate('Cart.CheckoutScreen.loginToCheckoutWarningText')}
+                                        </Text>
+                                    </View>
+                                    <TouchableOpacity style={tailwind('w-full')} disabled={isLoading} onPress={login}>
+                                        <View style={tailwind('btn border border-red-100 bg-red-100 w-full')}>
+                                            <Text style={tailwind('font-semibold text-red-900')}>{translate('Cart.CheckoutScreen.loginButtonText')}</Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        )}
+                        {!isPickupOrder && (
+                            <CheckoutDeliveryMap info={info} origin={origin} destination={deliverTo} wrapperStyle={tailwind('mb-4')} />
+                        )}
+                        {!isPickupOrder && (
+                            <TouchableOpacity
+                                style={tailwind('p-4 rounded-md bg-gray-50 mb-4')}
+                                disabled={!customer}
+                                onPress={() => navigation.navigate('CheckoutSavedPlaces', { useLeftArrow: true })}
+                            >
+                                <View style={tailwind('flex flex-row justify-between')}>
                                     <View>
-                                        <Text style={tailwind('font-bold text-base mb-1')}>{gatewayDetails[gateway?.type]?.name}</Text>
-                                        <Text>{gatewayDetails[gateway?.type]?.description}</Text>
+                                        <View style={tailwind('flex flex-row items-center mb-3')}>
+                                            <Text style={tailwind('font-semibold text-base')}>{translate('Cart.CheckoutScreen.addressLabelText')}</Text>
+                                            {isInvalidDeliveryPlace && <FontAwesomeIcon icon={faExclamationTriangle} style={tailwind('text-red-400 ml-1')} />}
+                                        </View>
+                                        {deliverTo && (
+                                            <View>
+                                                {deliverTo.isAttributeFilled('name') && <Text style={tailwind('font-semibold')}>{deliverTo.getAttribute('name')}</Text>}
+                                                <Text>{deliverTo.getAttribute('street1') ?? deliverTo.getAttribute('postal_code') ?? deliverTo.getAttribute('district')}</Text>
+                                                {deliverTo.isAttributeFilled('street2') && <Text>{deliverTo.getAttribute('street2')}</Text>}
+                                                <Text>
+                                                    {deliverTo.getAttribute('city')}, {deliverTo.getAttribute('country')} {deliverTo.getAttribute('postal_code')}
+                                                </Text>
+                                                {deliverTo.isAttributeFilled('phone') && <Text>{deliverTo.getAttribute('phone')}</Text>}
+                                            </View>
+                                        )}
+                                        {!deliverTo && (
+                                            <View>
+                                                <Text style={tailwind('font-semibold')}>{translate('Cart.CheckoutScreen.selectAddressLabelText')}</Text>
+                                            </View>
+                                        )}
+                                    </View>
+                                    <View style={tailwind('flex justify-center')}>
+                                        <View style={tailwind('flex items-end justify-center w-12')}>
+                                            <FontAwesomeIcon icon={faChevronRight} style={tailwind('text-gray-400')} />
+                                        </View>
                                     </View>
                                 </View>
                             </TouchableOpacity>
-                        ))}
-                    </View>
-                </View>
-            </ActionSheet>
+                        )}
 
-            <View style={tailwind('flex flex-row items-center justify-between p-4')}>
-                <View style={tailwind('flex flex-row items-center')}>
-                    <TouchableOpacity onPress={() => navigation.goBack()} style={tailwind('mr-4')}>
-                        <View style={tailwind('rounded-full bg-gray-100 w-10 h-10 flex items-center justify-center')}>
-                            <FontAwesomeIcon icon={faArrowLeft} />
-                        </View>
-                    </TouchableOpacity>
-                    <Text style={tailwind('text-xl font-semibold')}>{translate('Cart.CheckoutScreen.checkoutLabelText')}</Text>
-                </View>
-            </View>
-
-            <ScrollView showsHorizontalScrollIndicator={false} showsVerticalScrollIndicator={false}>
-                <View style={tailwind('p-4')}>
-                    {!customer && (
-                        <View style={tailwind('p-4 rounded-md bg-red-50 mb-4')}>
-                            <View style={tailwind('flex flex-col overflow-hidden')}>
-                                <View style={tailwind('flex flex-row items-center mb-3 w-full')}>
-                                    <FontAwesomeIcon icon={faExclamationTriangle} size={14} style={tailwind('text-red-500 mr-2')} />
-                                    <Text style={tailwind('text-red-600 text-sm font-semibold')} numberOfLines={1}>
-                                        {translate('Cart.CheckoutScreen.loginToCheckoutWarningText')}
-                                    </Text>
-                                </View>
-                                <TouchableOpacity style={tailwind('w-full')} disabled={isLoading} onPress={login}>
-                                    <View style={tailwind('btn border border-red-100 bg-red-100 w-full')}>
-                                        <Text style={tailwind('font-semibold text-red-900')}>{translate('Cart.CheckoutScreen.loginButtonText')}</Text>
-                                    </View>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    )}
-                    {!isPickupOrder && (
-                        <CheckoutDeliveryMap info={info} origin={origin} destination={deliverTo} wrapperStyle={tailwind('mb-4')} />
-                    )}
-                    {!isPickupOrder && (
                         <TouchableOpacity
-                            style={tailwind('p-4 rounded-md bg-gray-50 mb-4')}
-                            disabled={!customer}
-                            onPress={() => navigation.navigate('CheckoutSavedPlaces', { useLeftArrow: true })}
+                            style={tailwind(`p-4 rounded-md bg-gray-50 mb-4 ${gatewayOptions?.length === 0 ? 'opacity-50' : ''}`)}
+                            disabled={isLoading || gatewayOptions?.length === 0}
+                            onPress={choosePaymentOption}
                         >
                             <View style={tailwind('flex flex-row justify-between')}>
                                 <View>
-                                    <View style={tailwind('flex flex-row items-center mb-3')}>
-                                        <Text style={tailwind('font-semibold text-base')}>{translate('Cart.CheckoutScreen.addressLabelText')}</Text>
-                                        {isInvalidDeliveryPlace && <FontAwesomeIcon icon={faExclamationTriangle} style={tailwind('text-red-400 ml-1')} />}
-                                    </View>
-                                    {deliverTo && (
+                                    <View style={tailwind('flex flex-row justify-between mb-3')}>
                                         <View>
-                                            {deliverTo.isAttributeFilled('name') && <Text style={tailwind('font-semibold')}>{deliverTo.getAttribute('name')}</Text>}
-                                            <Text>{deliverTo.getAttribute('street1') ?? deliverTo.getAttribute('postal_code') ?? deliverTo.getAttribute('district')}</Text>
-                                            {deliverTo.isAttributeFilled('street2') && <Text>{deliverTo.getAttribute('street2')}</Text>}
-                                            <Text>
-                                                {deliverTo.getAttribute('city')}, {deliverTo.getAttribute('country')} {deliverTo.getAttribute('postal_code')}
-                                            </Text>
-                                            {deliverTo.isAttributeFilled('phone') && <Text>{deliverTo.getAttribute('phone')}</Text>}
+                                            <Text style={tailwind('font-semibold text-base')}>{translate('Cart.CheckoutScreen.paymentMethodLabelText')}</Text>
+                                        </View>
+                                    </View>
+
+                                    {gateway === null && (
+                                        <View>
+                                            <View style={tailwind('flex flex-row justify-between')}>
+                                                <Text>{translate('Cart.CheckoutScreen.selectPaymentMethodLabelText')}</Text>
+                                            </View>
                                         </View>
                                     )}
-                                    {!deliverTo && (
+
+                                    {gateway?.type === 'qpay' && (
                                         <View>
-                                            <Text style={tailwind('font-semibold')}>{translate('Cart.CheckoutScreen.selectAddressLabelText')}</Text>
+                                            <View style={tailwind('flex flex-row items-center')}>
+                                                <FontAwesomeIcon icon={faCashRegister} size={20} style={tailwind('text-blue-500 mr-2')} />
+                                                <Text>{gateway.getAttribute('name')}</Text>
+                                            </View>
+                                        </View>
+                                    )}
+
+                                    {gateway?.type === 'manual' && (
+                                        <View>
+                                            <View style={tailwind('flex flex-row items-center')}>
+                                                <FontAwesomeIcon icon={faCashRegister} size={20} style={tailwind('text-blue-500 mr-2')} />
+                                                <Text>{gateway.getAttribute('name')}</Text>
+                                            </View>
+                                        </View>
+                                    )}
+
+                                    {gateway?.isCashGateway && (
+                                        <View>
+                                            <View style={tailwind('flex flex-row items-center')}>
+                                                <FontAwesomeIcon icon={faMoneyBillWave} size={20} style={tailwind('text-green-400 mr-2')} />
+                                                <Text>{translate('Cart.CheckoutScreen.cashGatewayName')}</Text>
+                                            </View>
+                                        </View>
+                                    )}
+
+                                    {gateway?.isStripeGateway && (
+                                        <View>
+                                            <View style={tailwind('flex flex-row justify-between')}>
+                                                {isLoading && !paymentMethod?.label && <ActivityIndicator color={`rgba(31, 41, 55, .5)`} />}
+                                                {!isLoading && !paymentMethod?.label && <Text>{translate('Cart.CheckoutScreen.noPaymentMethodLabelText')}</Text>}
+                                                {paymentMethod?.label !== null && (
+                                                    <View style={tailwind('flex flex-row items-center')}>
+                                                        <FastImage
+                                                            source={{
+                                                                uri: `data:image/png;base64,${paymentMethod?.image}`,
+                                                            }}
+                                                            style={[{ width: 35, height: 22, marginRight: 10 }]}
+                                                        />
+                                                        <Text>{paymentMethod?.label}</Text>
+                                                    </View>
+                                                )}
+                                            </View>
                                         </View>
                                     )}
                                 </View>
@@ -683,181 +796,138 @@ const CheckoutScreen = ({ navigation, route }) => {
                                     </View>
                                 </View>
                             </View>
-                        </TouchableOpacity>
-                    )}
-
-                    <TouchableOpacity
-                        style={tailwind(`p-4 rounded-md bg-gray-50 mb-4 ${gatewayOptions?.length === 0 ? 'opacity-50' : ''}`)}
-                        disabled={isLoading || gatewayOptions?.length === 0}
-                        onPress={choosePaymentOption}
-                    >
-                        <View style={tailwind('flex flex-row justify-between')}>
-                            <View>
-                                <View style={tailwind('flex flex-row justify-between mb-3')}>
-                                    <View>
-                                        <Text style={tailwind('font-semibold text-base')}>{translate('Cart.CheckoutScreen.paymentMethodLabelText')}</Text>
-                                    </View>
-                                </View>
-
-                                {gateway === null && (
-                                    <View>
-                                        <View style={tailwind('flex flex-row justify-between')}>
-                                            <Text>{translate('Cart.CheckoutScreen.selectPaymentMethodLabelText')}</Text>
-                                        </View>
-                                    </View>
-                                )}
-
-                                {gateway?.type === 'qpay' && (
-                                    <View>
-                                        <View style={tailwind('flex flex-row items-center')}>
-                                            <FontAwesomeIcon icon={faCashRegister} size={20} style={tailwind('text-blue-500 mr-2')} />
-                                            <Text>{gateway.getAttribute('name')}</Text>
-                                        </View>
-                                    </View>
-                                )}
-
-                                {gateway?.isCashGateway && (
-                                    <View>
-                                        <View style={tailwind('flex flex-row items-center')}>
-                                            <FontAwesomeIcon icon={faMoneyBillWave} size={20} style={tailwind('text-green-400 mr-2')} />
-                                            <Text>{translate('Cart.CheckoutScreen.cashGatewayName')}</Text>
-                                        </View>
-                                    </View>
-                                )}
-
-                                {gateway?.isStripeGateway && (
-                                    <View>
-                                        <View style={tailwind('flex flex-row justify-between')}>
-                                            {isLoading && !paymentMethod?.label && <ActivityIndicator color={`rgba(31, 41, 55, .5)`} />}
-                                            {!isLoading && !paymentMethod?.label && <Text>{translate('Cart.CheckoutScreen.noPaymentMethodLabelText')}</Text>}
-                                            {paymentMethod?.label !== null && (
-                                                <View style={tailwind('flex flex-row items-center')}>
-                                                    <FastImage
-                                                        source={{
-                                                            uri: `data:image/png;base64,${paymentMethod?.image}`,
-                                                        }}
-                                                        style={[{ width: 35, height: 22, marginRight: 10 }]}
-                                                    />
-                                                    <Text>{paymentMethod?.label}</Text>
-                                                </View>
-                                            )}
-                                        </View>
-                                    </View>
-                                )}
-                            </View>
-                            <View style={tailwind('flex justify-center')}>
-                                <View style={tailwind('flex items-end justify-center w-12')}>
-                                    <FontAwesomeIcon icon={faChevronRight} style={tailwind('text-gray-400')} />
-                                </View>
-                            </View>
-                        </View>
-                        {gateway?.isStripeGateway && paymentSheetError !== false && (
-                            <View style={tailwind('mt-2 bg-red-50 px-2 py-1 flex flex-row')}>
-                                <FontAwesomeIcon icon={faExclamationTriangle} size={14} style={tailwind('text-red-500 mr-1')} />
-                                <Text style={tailwind('text-red-500')} numberOfLines={2}>
-                                    {paymentSheetError}
-                                </Text>
-                            </View>
-                        )}
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={tailwind('p-4 rounded-md bg-gray-50 mb-4')}>
-                        <View style={tailwind('flex flex-row justify-between')}>
-                            <View>
-                                <View style={tailwind('flex flex-row justify-between mb-3')}>
-                                    <Text style={tailwind('font-semibold text-base')}>
-                                        {translate('Cart.CheckoutScreen.cartLabelText', { cartUniqueItemsCount: cart.getAttribute('total_unique_items') })}
+                            {gateway?.isStripeGateway && paymentSheetError !== false && (
+                                <View style={tailwind('mt-2 bg-red-50 px-2 py-1 flex flex-row')}>
+                                    <FontAwesomeIcon icon={faExclamationTriangle} size={14} style={tailwind('text-red-500 mr-1')} />
+                                    <Text style={tailwind('text-red-500')} numberOfLines={2}>
+                                        {paymentSheetError}
                                     </Text>
                                 </View>
-                                <View style={tailwind('flex flex-row justify-between')}>
-                                    <View style={tailwind('flex-1 flex flex-row')}>
-                                        {cart.contents().map((cartItem, index) => (
-                                            <View key={index} style={tailwind('mr-2 flex items-center justify-center w-20')}>
-                                                <View style={tailwind('border border-gray-200 flex items-center justify-center w-16 h-16 mb-2')}>
-                                                    <FastImage source={{ uri: cartItem.product_image_url }} style={tailwind('w-10 h-10')} />
+                            )}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={tailwind('p-4 rounded-md bg-gray-50 mb-4')}>
+                            <View style={tailwind('flex flex-row justify-between')}>
+                                <View>
+                                    <View style={tailwind('flex flex-row justify-between mb-3')}>
+                                        <Text style={tailwind('font-semibold text-base')}>
+                                            {translate('Cart.CheckoutScreen.cartLabelText', { cartUniqueItemsCount: cart.getAttribute('total_unique_items') })}
+                                        </Text>
+                                    </View>
+                                    <View style={tailwind('flex flex-row justify-between')}>
+                                        <View style={tailwind('flex-1 flex flex-row')}>
+                                            {cart.contents().map((cartItem, index) => (
+                                                <View key={index} style={tailwind('mr-2 flex items-center justify-center w-20')}>
+                                                    <View style={tailwind('border border-gray-200 flex items-center justify-center w-16 h-16 mb-2')}>
+                                                        <FastImage source={{ uri: cartItem.product_image_url }} style={tailwind('w-10 h-10')} />
+                                                    </View>
+                                                    <Text style={tailwind('text-center text-xs mb-1')} numberOfLines={1}>
+                                                        {cartItem.name}
+                                                    </Text>
+                                                    <Text style={tailwind('text-center text-xs')} numberOfLines={1}>
+                                                        x{cartItem.quantity} {formatCurrency(cartItem.subtotal / 100, cart.getAttribute('currency'))}
+                                                    </Text>
                                                 </View>
-                                                <Text style={tailwind('text-center text-xs mb-1')} numberOfLines={1}>
-                                                    {cartItem.name}
-                                                </Text>
-                                                <Text style={tailwind('text-center text-xs')} numberOfLines={1}>
-                                                    x{cartItem.quantity} {formatCurrency(cartItem.subtotal / 100, cart.getAttribute('currency'))}
-                                                </Text>
-                                            </View>
-                                        ))}
+                                            ))}
+                                        </View>
+                                    </View>
+                                </View>
+                                <View style={tailwind('flex justify-center')}>
+                                    <View style={tailwind('flex items-end justify-center w-12')}>
+                                        <FontAwesomeIcon icon={faChevronRight} style={tailwind('text-gray-400')} />
                                     </View>
                                 </View>
                             </View>
-                            <View style={tailwind('flex justify-center')}>
-                                <View style={tailwind('flex items-end justify-center w-12')}>
-                                    <FontAwesomeIcon icon={faChevronRight} style={tailwind('text-gray-400')} />
-                                </View>
-                            </View>
-                        </View>
-                    </TouchableOpacity>
-                </View>
-
-                <View style={tailwind('p-4 w-full h-full bg-gray-50')}>
-                    <View style={tailwind('flex flex-row justify-between mb-3')}>
-                        <Text style={tailwind('font-semibold text-base')}>{translate('Cart.CheckoutScreen.orderSummaryLabelText')}</Text>
-                    </View>
-                    <View style={tailwind('pb-40')}>
-                        <View style={tailwind('flex flex-row items-center justify-between py-2')}>
-                            <Text>{translate('Cart.CheckoutScreen.subtotalLabelText')}</Text>
-                            <Text>{formatCurrency(cart.subtotal() / 100, cart.getAttribute('currency'))}</Text>
-                        </View>
-                        {!isPickupOrder && (
-                            <View style={tailwind('flex flex-row items-center justify-between py-2')}>
-                                <Text>{translate('Cart.CheckoutScreen.deliveryFeeLabelText')}</Text>
-                                {/* <Text>{isFetchingServiceQuote ? <ActivityIndicator /> : serviceQuote.formattedAmount}</Text> */}
-                                <Text>{isFetchingServiceQuote ? <ActivityIndicator /> : formatCurrency(serviceQuote.getAttribute('amount') / 100, cart.getAttribute('currency'))}</Text>
-                            </View>
-                        )}
-                        {tip !== 0 && (
-                            <View style={tailwind('flex flex-row items-center justify-between py-2')}>
-                                <Text>{translate('Cart.CheckoutScreen.tipLabelText')}</Text>
-                                <Text>{formattedTip}</Text>
-                            </View>
-                        )}
-                        {deliveryTip !== 0 && !isPickupOrder && (
-                            <View style={tailwind('flex flex-row items-center justify-between py-2')}>
-                                <Text>{translate('Cart.CheckoutScreen.deliveryTipLabelText')}</Text>
-                                <Text>{formattedDeliveryTip}</Text>
-                            </View>
-                        )}
-                        <View style={tailwind('flex flex-row items-center justify-between mt-2 pt-4 border-t-2 border-gray-900')}>
-                            <Text style={tailwind('font-semibold')}>{translate('Cart.CheckoutScreen.orderTotalLabelText')}</Text>
-                            <Text style={tailwind('font-semibold')}>{formatCurrency(calculateTotal() / 100, cart.getAttribute('currency'))}</Text>
-                        </View>
-                    </View>
-                </View>
-            </ScrollView>
-
-            <View style={tailwind('absolute w-full bottom-0')}>
-                <View style={tailwind('w-full bg-white shadow-sm px-4 py-6')}>
-                    <View style={tailwind('flex flex-row justify-between mb-2')}>
-                        <View>
-                            <Text style={tailwind('text-gray-400')}>{translate('Cart.CheckoutScreen.orderTotalLabelText')}</Text>
-                            <Text style={tailwind('font-bold text-base')}>{formatCurrency(calculateTotal() / 100, cart.getAttribute('currency'))}</Text>
-                        </View>
-                        <TouchableOpacity onPress={placeOrder} disabled={!canPlaceOrder}>
-                            <View
-                                style={tailwind(
-                                    `flex flex-row items-center justify-center rounded-md px-8 py-2 bg-white bg-green-500 border border-green-500 ${
-                                        isLoading || !canPlaceOrder ? 'bg-opacity-50 border-opacity-50' : ''
-                                    }`
-                                )}
-                            >
-                                {isLoading && <ActivityIndicator color={'rgba(6, 78, 59, .5)'} style={tailwind('mr-2')} />}
-                                <Text style={tailwind(`font-semibold text-white text-lg ${isLoading ? 'text-opacity-50' : ''}`)}>
-                                    {translate('Cart.CheckoutScreen.submitOrderButtonText')}
-                                </Text>
-                            </View>
                         </TouchableOpacity>
                     </View>
+
+                    <View style={tailwind('p-4 w-full h-full bg-gray-50')}>
+                        <View style={tailwind('flex flex-row justify-between mb-3')}>
+                            <Text style={tailwind('font-semibold text-base')}>{translate('Cart.CheckoutScreen.orderSummaryLabelText')}</Text>
+                        </View>
+                        <View style={tailwind('pb-40')}>
+                            <View style={tailwind('flex flex-row items-center justify-between py-2')}>
+                                <Text>{translate('Cart.CheckoutScreen.subtotalLabelText')}</Text>
+                                <Text>{formatCurrency(cart.subtotal() / 100, cart.getAttribute('currency'))}</Text>
+                            </View>
+                            {!isPickupOrder && (
+                                <View style={tailwind('flex flex-row items-center justify-between py-2')}>
+                                    <Text>{translate('Cart.CheckoutScreen.deliveryFeeLabelText')}</Text>
+                                    {/* <Text>{isFetchingServiceQuote ? <ActivityIndicator /> : serviceQuote.formattedAmount}</Text> */}
+                                    <Text>{isFetchingServiceQuote ? <ActivityIndicator /> : formatCurrency(serviceQuote.getAttribute('amount') / 100, cart.getAttribute('currency'))}</Text>
+                                </View>
+                            )}
+                            {tip !== 0 && (
+                                <View style={tailwind('flex flex-row items-center justify-between py-2')}>
+                                    <Text>{translate('Cart.CheckoutScreen.tipLabelText')}</Text>
+                                    <Text>{formattedTip}</Text>
+                                </View>
+                            )}
+                            {deliveryTip !== 0 && !isPickupOrder && (
+                                <View style={tailwind('flex flex-row items-center justify-between py-2')}>
+                                    <Text>{translate('Cart.CheckoutScreen.deliveryTipLabelText')}</Text>
+                                    <Text>{formattedDeliveryTip}</Text>
+                                </View>
+                            )}
+                            <View style={tailwind('flex flex-row items-center justify-between mt-2 pt-4 border-t-2 border-gray-900')}>
+                                <Text style={tailwind('font-semibold')}>{translate('Cart.CheckoutScreen.orderTotalLabelText')}</Text>
+                                <Text style={tailwind('font-semibold')}>{formatCurrency(calculateTotal() / 100, cart.getAttribute('currency'))}</Text>
+                            </View>
+                        </View>
+                    </View>
+                </ScrollView>
+
+                <View style={tailwind('absolute w-full bottom-0')}>
+                    <View style={tailwind('w-full bg-white shadow-sm px-4 py-6')}>
+                        <View style={tailwind('flex flex-row justify-between mb-2')}>
+                            <View>
+                                <Text style={tailwind('text-gray-400')}>{translate('Cart.CheckoutScreen.orderTotalLabelText')}</Text>
+                                <Text style={tailwind('font-bold text-base')}>{formatCurrency(calculateTotal() / 100, cart.getAttribute('currency'))}</Text>
+                            </View>
+                            <TouchableOpacity 
+                                onPress={placeOrder} 
+                                // disabled={!canPlaceOrder}
+                            >
+                                <View
+                                    style={tailwind(
+                                        `flex flex-row items-center justify-center rounded-md px-8 py-2 bg-white bg-green-500 border border-green-500 ${
+                                            isLoading || !canPlaceOrder ? 'bg-opacity-50 border-opacity-50' : ''
+                                        }`
+                                    )}
+                                >
+                                    {isLoading && <ActivityIndicator color={'rgba(6, 78, 59, .5)'} style={tailwind('mr-2')} />}
+                                    <Text style={tailwind(`font-semibold text-white text-lg ${isLoading ? 'text-opacity-50' : ''}`)}>
+                                        {translate('Cart.CheckoutScreen.submitOrderButtonText')}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
                 </View>
+                <QpayPaymentSheet invoice={qpayInvoice} onPress={(bank) => openLink(bank.link, `Unable to open ${bank.name} app!`)} onReady={setQpayPaymentSheet} />
             </View>
-            <QpayPaymentSheet invoice={qpayInvoice} onPress={(bank) => openLink(bank.link, `Unable to open ${bank.name} app!`)} onReady={setQpayPaymentSheet} />
-        </View>
+
+            <AfroPay 
+                onSuccess={() => {
+                    console.log("Payment successful - Afropay")
+                    storefront.checkout
+                    .captureOrder(checkoutToken)
+                    .then((order) => {
+                        cart.empty().then((cart) => {
+                            updateCart(cart);
+                        });
+                        navigation.navigate('OrderCompleted', { serializedOrder: order.serialize() });
+                    })
+                    .catch(logError)
+                    .finally(() => {
+                        setIsLoading(false);
+                    });
+                }} 
+                onClose={() => {
+                    setIsLoading(false);
+                }}
+            />
+        </>
     );
 };
 
