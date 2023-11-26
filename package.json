@@ -37,7 +37,7 @@
     "react": "17.0.1",
     "react-native": "0.64.2",
     "react-native-actions-sheet": "^0.5.4",
-    "react-native-afro-pay": "^0.1.8",
+    "react-native-afro-pay": "^0.1.9",
     "react-native-animated-radio-button": "^2.0.6",
     "react-native-bootsplash": "^4.0.2",
     "react-native-bouncy-checkbox": "^2.1.2",
